@@ -183,6 +183,14 @@ button {
   margin-bottom: 8px;
 }
 
+.boss-hp-number {
+  text-align: center;
+  color: #f7e6c8;
+  font-size: 13px;
+  margin-bottom: 6px;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+}
+
 .boss-shell {
   height: 20px;
 }

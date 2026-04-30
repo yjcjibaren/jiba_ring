@@ -47,6 +47,7 @@ type GameStore = {
     summonHp: number
   ) => void;
   setBossState: (visible: boolean, hp: number, subtitle?: string) => void;
+  setChapter: (title: string, bossName: string, bossMaxHp: number) => void;
   triggerPhaseTwo: () => void;
 };
 
@@ -104,6 +105,15 @@ export const useGameStore = create<GameStore>((set) => ({
       bossVisible: visible,
       bossHp: hp,
       bossSubtitle: subtitle
+    }),
+  setChapter: (title, bossName, bossMaxHp) =>
+    set({
+      chapterTitle: title,
+      bossName,
+      bossMaxHp,
+      bossHp: bossMaxHp,
+      bossSubtitle: "",
+      phaseTwo: false
     }),
   triggerPhaseTwo: () => set({ phaseTwo: true })
 }));

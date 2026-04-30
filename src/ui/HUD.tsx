@@ -35,7 +35,9 @@ function Bar({
     <div className="bar-block">
       <div className="bar-label-row">
         <span>{label}</span>
-        <span>{Math.ceil(value)}</span>
+        <span>
+          {Math.ceil(value)} / {max}
+        </span>
       </div>
       <div className="bar-shell">
         <div className={`bar-fill ${className}`} style={{ width: `${pct}%` }} />
@@ -62,6 +64,9 @@ export function HUD(props: HUDProps) {
         <div className="hud boss-bar">
           <div className="boss-name">{props.bossName}</div>
           {props.bossSubtitle ? <div className="boss-subtitle">{props.bossSubtitle}</div> : null}
+          <div className="boss-hp-number">
+            {Math.ceil(props.bossHp)} / {props.bossMaxHp}
+          </div>
           <div className="bar-shell boss-shell">
             <div
               className="bar-fill boss"

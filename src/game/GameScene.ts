@@ -11,11 +11,18 @@ import { useGameStore } from "../store/gameStore";
 import {
   BOSS_MAX_HP,
   BOSS_PHASE_TWO_TITLE,
+  CHAPTER_TWO_TITLE,
   GAME_HEIGHT,
   GAME_WIDTH,
   GROUND_Y,
+  MAGE_BOSS_MAX_HP,
+  MAGE_BOSS_NAME,
+  MAGE_PHASE_TWO_TITLE,
+  PLAYER_MAX_HP,
   SUMMON_MAX_HP
 } from "./constants";
+
+const WORLD_WIDTH = 6400;
 
 export class GameScene extends Phaser.Scene {
   private player!: Player;
@@ -23,6 +30,8 @@ export class GameScene extends Phaser.Scene {
   private familiar!: Familiar;
   private boss!: Boss;
   private bossVisual!: Phaser.GameObjects.Sprite;
+  private mageBoss!: Phaser.Physics.Arcade.Sprite;
+  private mageVisual!: Phaser.GameObjects.Image;
   private enemies: Enemy[] = [];
   private enemyVisuals = new Map<Enemy, Phaser.GameObjects.Sprite>();
   private projectiles!: Phaser.GameObjects.Group;
@@ -38,6 +47,14 @@ export class GameScene extends Phaser.Scene {
   private store = useGameStore;
   private lastArrowTrailAt = 0;
   private ultimateOverlay?: Phaser.GameObjects.Container;
+  private chapter: 1 | 2 = 1;
+  private chapterTwoStarted = false;
+  private mageTriggered = false;
+  private magePhaseTwo = false;
+  private mageUltActive = false;
+  private mageHp = MAGE_BOSS_MAX_HP;
+  private mageNextMoveAt = 0;
+  private mageIntroHandled = false;
 
   constructor() {
     super("GameScene");
@@ -52,14 +69,15 @@ export class GameScene extends Phaser.Scene {
     this.load.spritesheet("bossArt", "sprites/boss-normalized.png", { frameWidth: 410, frameHeight: 772 });
     this.load.image("bugEnemy", "enemies/bug-enemy.png");
     this.load.image("nutEnemy", "enemies/nut-enemy.png");
+    this.load.image("mageBossArt", "bosses/mage-boss.png");
     this.makeTextures();
   }
 
   create() {
     this.createBackdrop();
     this.createVisualAnimations();
-    this.physics.world.setBounds(0, 0, 3200, GAME_HEIGHT);
-    this.cameras.main.setBounds(0, 0, 3200, GAME_HEIGHT);
+    this.physics.world.setBounds(0, 0, WORLD_WIDTH, GAME_HEIGHT);
+    this.cameras.main.setBounds(0, 0, WORLD_WIDTH, GAME_HEIGHT);
 
     this.ground = this.physics.add.staticGroup();
     this.createTerrain();
@@ -78,6 +96,16 @@ export class GameScene extends Phaser.Scene {
     this.boss.setAlpha(0.01);
     this.physics.add.collider(this.boss, this.ground);
     this.bossVisual = this.add.sprite(this.boss.x, this.boss.y, "bossArt", 0).setDepth(2.65).setScale(0.38).setVisible(false);
+
+    this.mageBoss = this.physics.add.sprite(5960, 500, "magicBolt").setAlpha(0.01).setVisible(false);
+    this.mageBoss.setCollideWorldBounds(true);
+    const mageBody = this.mageBoss.body as Phaser.Physics.Arcade.Body;
+    mageBody.setAllowGravity(false);
+    mageBody.setSize(78, 154);
+    this.mageVisual = this.add.image(this.mageBoss.x, this.mageBoss.y - 68, "mageBossArt")
+      .setDepth(2.7)
+      .setScale(0.16)
+      .setVisible(false);
 
     this.projectiles = this.add.group({ classType: Projectile, runChildUpdate: false });
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12, -180, 0);
@@ -147,29 +175,45 @@ export class GameScene extends Phaser.Scene {
     g.fillTriangle(18, 14, 74, 4, 104, 14);
     g.generateTexture("spellArc", 110, 24);
 
+    g.clear();
+    g.fillStyle(0xd88aff, 0.95);
+    g.fillCircle(18, 18, 14);
+    g.fillStyle(0xffffff, 0.7);
+    g.fillCircle(18, 18, 6);
+    g.lineStyle(3, 0x7a35ff, 0.85);
+    g.strokeCircle(18, 18, 14);
+    g.generateTexture("mageBolt", 36, 36);
+
+    g.clear();
+    g.fillStyle(0xca78ff, 0.8);
+    g.fillRoundedRect(0, 0, 120, 28, 12);
+    g.lineStyle(3, 0xffd6ff, 0.78);
+    g.strokeRoundedRect(0, 0, 120, 28, 12);
+    g.generateTexture("mageWave", 120, 28);
+
     g.destroy();
   }
 
   private createBackdrop() {
-    this.add.rectangle(1600, 360, 3200, GAME_HEIGHT, 0x090b12).setScrollFactor(0);
-    this.add.image(1600, 330, "goldenRuinsBg").setDisplaySize(3260, 860).setAlpha(0.52).setScrollFactor(0.16);
-    this.add.rectangle(1600, 146, 3200, 220, 0x17141c, 0.46).setScrollFactor(0);
+    this.add.rectangle(WORLD_WIDTH / 2, 360, WORLD_WIDTH, GAME_HEIGHT, 0x090b12).setScrollFactor(0);
+    this.add.image(WORLD_WIDTH / 2, 330, "goldenRuinsBg").setDisplaySize(WORLD_WIDTH + 80, 860).setAlpha(0.52).setScrollFactor(0.16);
+    this.add.rectangle(WORLD_WIDTH / 2, 146, WORLD_WIDTH, 220, 0x17141c, 0.46).setScrollFactor(0);
     this.goldTreeGlow = this.add.circle(1040, 118, 220, 0xdebe66, 0.26).setScrollFactor(0.24);
     this.add.rectangle(1010, 312, 22, 420, 0x8d7130, 0.65).setScrollFactor(0.3);
 
     for (let i = 0; i < 8; i += 1) {
       this.add.ellipse(860 + i * 42, 166 + (i % 3) * 16, 240, 78, 0xd6ba68, 0.13).setScrollFactor(0.28);
     }
-    for (let i = 0; i < 8; i += 1) {
+    for (let i = 0; i < 16; i += 1) {
       this.add.rectangle(160 + i * 390, 488 - (i % 2) * 60, 148, 240, 0x242631, 0.9).setOrigin(0.5, 1).setScrollFactor(0.48);
       this.add.rectangle(130 + i * 390, 520, 30, 118, 0x38241f, 0.55).setOrigin(0.5, 1).setRotation(-0.18).setScrollFactor(0.6);
     }
-    for (let i = 0; i < 8; i += 1) {
+    for (let i = 0; i < 16; i += 1) {
       this.add.triangle(160 + i * 380, 622, 0, 0, 56, -156, 110, 0, 0x42261d, 0.62).setOrigin(0.5, 1).setScrollFactor(0.72);
     }
     this.fogLayers = [
-      this.add.rectangle(1200, 554, 2600, 82, 0x9f8a65, 0.08).setScrollFactor(0.82),
-      this.add.rectangle(1880, 596, 2300, 54, 0xffffff, 0.05).setScrollFactor(0.92)
+      this.add.rectangle(2600, 554, 5200, 82, 0x9f8a65, 0.08).setScrollFactor(0.82),
+      this.add.rectangle(3700, 596, 4300, 54, 0xffffff, 0.05).setScrollFactor(0.92)
     ];
   }
 
@@ -183,6 +227,13 @@ export class GameScene extends Phaser.Scene {
     this.addGroundSegment(2370, 604, 420, 136, 0x3a2d23);
     this.addGroundSegment(2810, 622, 520, 118, 0x30251e);
     this.addGroundSegment(3160, 636, 220, 104, 0x2b221c);
+    this.addGroundSegment(3480, 628, 430, 112, 0x251f30);
+    this.addGroundSegment(3910, 608, 380, 132, 0x2f2540);
+    this.addGroundSegment(4310, 632, 390, 108, 0x241d32);
+    this.addGroundSegment(4740, 604, 430, 136, 0x35294c);
+    this.addGroundSegment(5180, 624, 380, 116, 0x261f34);
+    this.addGroundSegment(5700, 618, 720, 122, 0x302146);
+    this.addGroundSegment(6280, 636, 250, 104, 0x251b33);
 
     this.addPlatform(405, 548, 190, 0x6b5943);
     this.addPlatform(735, 500, 150, 0x705c43);
@@ -192,6 +243,11 @@ export class GameScene extends Phaser.Scene {
     this.addPlatform(2050, 500, 190, 0x705a3f);
     this.addPlatform(2325, 462, 180, 0x6d573e);
     this.addPlatform(2590, 530, 230, 0x705f45);
+    this.addPlatform(3660, 510, 180, 0x7656a0);
+    this.addPlatform(4025, 465, 180, 0x6b4e94);
+    this.addPlatform(4480, 525, 210, 0x7350a0);
+    this.addPlatform(4910, 470, 190, 0x6b4e94);
+    this.addPlatform(5370, 520, 220, 0x7656a0);
 
     for (let i = 0; i < 19; i += 1) {
       const x = 70 + i * 168;
@@ -327,6 +383,7 @@ export class GameScene extends Phaser.Scene {
     this.processPlayerStomps();
     this.processEnemyAttacks(now);
     this.processBoss(now);
+    this.processMageBoss(now);
     this.processProjectiles(now);
     this.checkBossTrigger();
     this.syncStore();
@@ -337,10 +394,14 @@ export class GameScene extends Phaser.Scene {
       this.gameOverHandled = true;
       this.time.delayedCall(700, () => this.store.getState().setScreen("gameover"));
     }
-    if (this.bossTriggered && !this.boss.alive && !this.victoryHandled) {
+    if (this.chapter === 1 && this.bossTriggered && !this.boss.alive && !this.chapterTwoStarted) {
+      this.chapterTwoStarted = true;
+      this.time.delayedCall(850, () => this.startChapterTwo());
+    }
+    if (this.chapter === 2 && this.mageTriggered && this.mageHp <= 0 && !this.victoryHandled) {
       audio.play("victory");
       this.victoryHandled = true;
-      this.store.getState().setBossState(true, 0, BOSS_PHASE_TWO_TITLE);
+      this.store.getState().setBossState(true, 0, MAGE_PHASE_TWO_TITLE);
       this.time.delayedCall(1200, () => this.store.getState().setScreen("victory"));
     }
   }
@@ -541,7 +602,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private pickNearestTarget(x: number, y: number, range: number) {
-    let best: Enemy | Boss | null = null;
+    let best: Enemy | Boss | Phaser.Physics.Arcade.Sprite | null = null;
     let bestDist = range;
     this.enemies.forEach((enemy) => {
       if (!enemy.alive) return;
@@ -555,6 +616,12 @@ export class GameScene extends Phaser.Scene {
       const dist = Phaser.Math.Distance.Between(x, y, this.boss.x, this.boss.y);
       if (dist < bestDist) {
         best = this.boss;
+      }
+    }
+    if (this.mageTriggered && this.mageHp > 0) {
+      const dist = Phaser.Math.Distance.Between(x, y, this.mageBoss.x, this.mageBoss.y);
+      if (dist < bestDist) {
+        best = this.mageBoss;
       }
     }
     return best;
@@ -587,7 +654,9 @@ export class GameScene extends Phaser.Scene {
           if (!enemy.alive || !projectile.active) return;
           if (Phaser.Geom.Intersects.RectangleToRectangle(projectile.getBounds(), this.bodyRect(enemy))) {
             const body = projectile.body as Phaser.Physics.Arcade.Body;
+            const beforeHp = enemy.hp;
             enemy.takeDamage(projectile.damage, body.velocity.x > 0 ? 120 : -120);
+            this.showDamageNumber(enemy.x, enemy.y - 28, beforeHp - enemy.hp, 0xffd0f5);
             if (projectile.owner === "player") {
               this.player.gainEnergy(projectile.heavy ? 20 : 12);
             } else {
@@ -600,7 +669,9 @@ export class GameScene extends Phaser.Scene {
         if (this.boss.alive && projectile.active && this.bossTriggered) {
           if (Phaser.Geom.Intersects.RectangleToRectangle(projectile.getBounds(), this.bodyRect(this.boss))) {
             const body = projectile.body as Phaser.Physics.Arcade.Body;
+            const beforeHp = this.boss.hp;
             this.boss.takeDamage(projectile.damage, body.velocity.x > 0 ? 100 : -100);
+            this.showDamageNumber(this.boss.x, this.boss.y - 70, beforeHp - this.boss.hp, 0xffd7a0);
             if (projectile.owner === "player") {
               this.player.gainEnergy(projectile.heavy ? 18 : 10);
             } else {
@@ -609,6 +680,36 @@ export class GameScene extends Phaser.Scene {
             projectile.destroy();
             this.spawnImpact(this.boss.x, this.boss.y - 20, 0xffb8ec);
           }
+        }
+        if (this.mageTriggered && this.mageHp > 0 && projectile.active) {
+          if (Phaser.Geom.Intersects.RectangleToRectangle(projectile.getBounds(), this.bodyRect(this.mageBoss))) {
+            const amount = projectile.damage;
+            this.mageHp = Math.max(0, this.mageHp - amount);
+            this.showDamageNumber(this.mageBoss.x, this.mageBoss.y - 96, amount, 0xf2b4ff);
+            if (projectile.owner === "player") {
+              this.player.gainEnergy(projectile.heavy ? 16 : 9);
+            } else {
+              this.player.gainEnergy(3);
+            }
+            projectile.destroy();
+            this.spawnImpact(this.mageBoss.x, this.mageBoss.y - 70, 0xda83ff);
+            this.flashSprite(this.mageVisual as unknown as Phaser.GameObjects.Sprite, 0xffc8ff, 120);
+          }
+        }
+      }
+      if (projectile.owner === "enemy") {
+        if (Phaser.Geom.Intersects.RectangleToRectangle(projectile.getBounds(), this.bodyRect(this.player))) {
+          const knockback = ((projectile.body as Phaser.Physics.Arcade.Body).velocity.x || -1) < 0 ? -240 : 240;
+          if (this.player.takeDamage(projectile.damage, knockback)) {
+            this.showDamageNumber(this.player.x, this.player.y - 72, projectile.damage, 0xff7474);
+            this.spawnImpact(this.player.x, this.player.y - 12, 0xd58aff);
+            this.cameras.main.shake(110, 0.005);
+            audio.play("hit");
+          }
+          projectile.destroy();
+        } else if (this.familiar.alive && Phaser.Geom.Intersects.RectangleToRectangle(projectile.getBounds(), this.bodyRect(this.familiar))) {
+          this.familiar.takeDamage(Math.round(projectile.damage * 0.55), -120);
+          projectile.destroy();
         }
       }
     });
@@ -661,6 +762,7 @@ export class GameScene extends Phaser.Scene {
           const hit = this.player.takeDamage(damage, this.player.x < enemy.x ? -260 : 260);
           if (hit) {
             audio.play("hit");
+            this.showDamageNumber(this.player.x, this.player.y - 72, damage, 0xff7474);
             this.cameras.main.shake(110, 0.006);
             this.spawnImpact(this.player.x, this.player.y - 10, 0xffd8e8);
           }
@@ -669,6 +771,68 @@ export class GameScene extends Phaser.Scene {
           this.familiar.takeDamage(10, this.familiar.x < enemy.x ? -160 : 160);
         }
       });
+    });
+  }
+
+  private startChapterTwo() {
+    this.chapter = 2;
+    this.bossTriggered = false;
+    this.boss.disableBody(true, true);
+    this.bossVisual.setVisible(false);
+    this.store.getState().setChapter(CHAPTER_TWO_TITLE, MAGE_BOSS_NAME, MAGE_BOSS_MAX_HP);
+    this.store.getState().setBossState(false, MAGE_BOSS_MAX_HP);
+
+    this.player.setPosition(3380, 500);
+    this.player.setVelocity(0, 0);
+    this.player.hp = Math.min(PLAYER_MAX_HP, Math.max(1, this.player.hp + 28));
+    this.player.stamina = 100;
+    this.player.energy = Math.min(70, this.player.energy + 28);
+    if (this.familiar.alive) {
+      this.familiar.recall(this.player.x + 70, this.player.y + 8);
+    } else {
+      this.familiar.restore();
+      this.familiar.recall(this.player.x + 70, this.player.y + 8);
+    }
+
+    this.clearEnemies();
+    this.spawnChapterTwoEnemies();
+    this.cameras.main.flash(360, 104, 72, 146);
+    this.showCenterNotice("第二章：紫晶魔女的回廊", "魔法会先落在你站过的地方，别贪刀。");
+  }
+
+  private clearEnemies() {
+    this.enemies.forEach((enemy) => enemy.destroy());
+    this.enemyVisuals.forEach((visual) => visual.destroy());
+    this.enemies = [];
+    this.enemyVisuals.clear();
+  }
+
+  private spawnChapterTwoEnemies() {
+    const positions: Array<{ x: number; y: number; kind: "grunt" | "bug" | "nut" }> = [
+      { x: 3640, y: 445, kind: "bug" },
+      { x: 3860, y: 555, kind: "nut" },
+      { x: 4100, y: 420, kind: "bug" },
+      { x: 4380, y: 555, kind: "grunt" },
+      { x: 4700, y: 430, kind: "bug" },
+      { x: 5000, y: 555, kind: "nut" },
+      { x: 5330, y: 430, kind: "bug" }
+    ];
+    this.enemies = positions.map((pos) => {
+      const enemy =
+        pos.kind === "bug"
+          ? new FlyingBug(this, pos.x, pos.y)
+          : pos.kind === "nut"
+            ? new NutEnemy(this, pos.x, pos.y)
+            : new Enemy(this, pos.x, pos.y);
+      enemy.setAlpha(0.01);
+      if (!(enemy instanceof FlyingBug)) {
+        this.physics.add.collider(enemy, this.ground);
+      }
+      const visualKey = enemy instanceof FlyingBug ? "bugEnemy" : enemy instanceof NutEnemy ? "nutEnemy" : "enemyArt";
+      const visualScale = enemy instanceof FlyingBug ? 0.082 : enemy instanceof NutEnemy ? 0.084 : 0.22;
+      const visual = this.add.sprite(pos.x, pos.y, visualKey, 0).setDepth(2.55).setScale(visualScale);
+      this.enemyVisuals.set(enemy, visual);
+      return enemy;
     });
   }
 
@@ -709,6 +873,129 @@ export class GameScene extends Phaser.Scene {
       else move = "sweep";
     }
     this.executeBossMove(move, dx);
+  }
+
+  private processMageBoss(now: number) {
+    if (!this.mageTriggered || this.mageHp <= 0) return;
+    this.mageBoss.setVelocity(0, Math.sin(now / 520) * 16);
+    this.mageVisual.setPosition(this.mageBoss.x, this.mageBoss.y - 78);
+    this.mageVisual.setScale((this.mageUltActive ? 0.18 : 0.16) + Math.sin(now / 180) * 0.003);
+
+    if (!this.magePhaseTwo && this.mageHp <= MAGE_BOSS_MAX_HP * 0.52) {
+      this.magePhaseTwo = true;
+      this.mageUltActive = true;
+      this.mageNextMoveAt = now + 1100;
+      this.store.getState().triggerPhaseTwo();
+      this.store.getState().setBossState(true, this.mageHp, MAGE_PHASE_TWO_TITLE);
+      this.showMageUltimate();
+      this.cameras.main.shake(420, 0.009);
+      audio.play("phase_two");
+    }
+
+    if (now < this.mageNextMoveAt) return;
+    const distance = Math.abs(this.player.x - this.mageBoss.x);
+    const phaseSpeed = this.magePhaseTwo ? 0.72 : 1;
+    const move = this.magePhaseTwo
+      ? Phaser.Math.RND.pick(["line", "lock", "wave", "line"] as const)
+      : Phaser.Math.RND.pick(["line", "lock", "line"] as const);
+    if (move === "line") {
+      this.mageCastLineBolt();
+      this.mageNextMoveAt = now + Math.round((distance > 420 ? 820 : 1020) * phaseSpeed);
+    } else if (move === "lock") {
+      this.mageCastLockOn();
+      this.mageNextMoveAt = now + Math.round(1280 * phaseSpeed);
+    } else {
+      this.mageCastWave();
+      this.mageNextMoveAt = now + Math.round(1560 * phaseSpeed);
+    }
+  }
+
+  private mageCastLineBolt() {
+    if (!this.player.alive) return;
+    const y = Phaser.Math.Clamp(this.player.y - 18, 330, 560);
+    const bolt = new Projectile(this, this.mageBoss.x - 80, y);
+    bolt.setTexture("mageBolt");
+    bolt.owner = "enemy";
+    bolt.damage = this.magePhaseTwo ? 18 : 14;
+    bolt.bornAt = this.time.now;
+    bolt.setTint(0xd58aff);
+    bolt.setScale(this.magePhaseTwo ? 1.25 : 1.05);
+    bolt.setBlendMode(Phaser.BlendModes.ADD);
+    bolt.setVelocityX(this.magePhaseTwo ? -720 : -600);
+    const body = bolt.body as Phaser.Physics.Arcade.Body;
+    body.setAllowGravity(false);
+    body.setSize(24, 24);
+    this.projectiles.add(bolt);
+    this.showTelegraphZone(this.mageBoss.x - 360, y, 560, 26, 0xbf77ff, 260);
+  }
+
+  private mageCastLockOn() {
+    const x = this.player.x;
+    const y = this.player.y - 28;
+    this.showTelegraphZone(x, y, 110, 110, 0xd477ff, this.magePhaseTwo ? 520 : 680);
+    const marker = this.add.circle(x, y, 38, 0xd477ff, 0.18).setDepth(2).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: marker, scale: 1.8, alpha: 0, duration: this.magePhaseTwo ? 520 : 680, onComplete: () => marker.destroy() });
+    this.time.delayedCall(this.magePhaseTwo ? 520 : 680, () => {
+      const blast = new Phaser.Geom.Circle(x, y, this.magePhaseTwo ? 62 : 52);
+      this.spawnImpact(x, y, 0xdf9cff);
+      if (this.player.alive && Phaser.Geom.Intersects.CircleToRectangle(blast, this.bodyRect(this.player))) {
+        const damage = this.magePhaseTwo ? 24 : 19;
+        if (this.player.takeDamage(damage, this.player.x < x ? -260 : 260)) {
+          this.showDamageNumber(this.player.x, this.player.y - 72, damage, 0xff7474);
+          this.cameras.main.shake(160, 0.007);
+          audio.play("hit");
+        }
+      }
+      if (this.familiar.alive && Phaser.Geom.Intersects.CircleToRectangle(blast, this.bodyRect(this.familiar))) {
+        this.familiar.takeDamage(12, this.familiar.x < x ? -120 : 120);
+      }
+    });
+  }
+
+  private mageCastWave() {
+    const wave = this.add.image(this.mageBoss.x - 75, GROUND_Y - 42, "mageWave")
+      .setDepth(2.4)
+      .setTint(0xd58aff)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setScale(1.1, 1);
+    this.tweens.add({
+      targets: wave,
+      x: wave.x - 720,
+      scaleX: 2.2,
+      alpha: 0,
+      duration: 900,
+      onUpdate: () => {
+        const rect = wave.getBounds();
+        rect.height = 60;
+        rect.y -= 20;
+        if (wave.active && this.player.alive && Phaser.Geom.Intersects.RectangleToRectangle(rect, this.bodyRect(this.player))) {
+          const damage = 20;
+          if (this.player.takeDamage(damage, -300)) {
+            this.showDamageNumber(this.player.x, this.player.y - 72, damage, 0xff7474);
+            this.cameras.main.shake(120, 0.005);
+            wave.destroy();
+          }
+        }
+      },
+      onComplete: () => wave.destroy()
+    });
+  }
+
+  private triggerMageBoss() {
+    this.mageTriggered = true;
+    this.mageHp = MAGE_BOSS_MAX_HP;
+    this.magePhaseTwo = false;
+    this.mageUltActive = false;
+    this.mageNextMoveAt = this.time.now + 1000;
+    this.mageBoss.enableBody(true, 5960, 500, true, true);
+    this.mageBoss.setVisible(true).setAlpha(0.01);
+    this.mageVisual.setVisible(true).setAlpha(0);
+    this.tweens.add({ targets: this.mageVisual, alpha: 1, duration: 520 });
+    this.store.getState().setChapter(CHAPTER_TWO_TITLE, MAGE_BOSS_NAME, MAGE_BOSS_MAX_HP);
+    this.store.getState().setBossState(true, this.mageHp);
+    this.cameras.main.shake(260, 0.006);
+    audio.play("boss_roar");
+    this.showCenterNotice("紫晶魔女 赛蕾娜", "她会瞄准你现在的位置，看到紫圈就翻滚。");
   }
 
   private executeBossMove(move: Boss["activeMove"], dx: number) {
@@ -814,6 +1101,7 @@ export class GameScene extends Phaser.Scene {
       const hit = this.player.takeDamage(damage, knockback);
       if (hit) {
         audio.play("hit");
+        this.showDamageNumber(this.player.x, this.player.y - 72, damage, 0xff7474);
         this.applyHitStop(90);
         this.cameras.main.shake(150, 0.008);
         this.spawnImpact(this.player.x, this.player.y - 8, 0xffc8e4);
@@ -835,7 +1123,9 @@ export class GameScene extends Phaser.Scene {
       onUpdate: () => {
         const rect = wave.getBounds();
         if (wave.active && Phaser.Geom.Intersects.RectangleToRectangle(rect, this.bodyRect(this.player))) {
-          this.player.takeDamage(28, dir * 280);
+          if (this.player.takeDamage(28, dir * 280)) {
+            this.showDamageNumber(this.player.x, this.player.y - 72, 28, 0xff7474);
+          }
           wave.destroy();
         }
         if (this.familiar.alive && wave.active && Phaser.Geom.Intersects.RectangleToRectangle(rect, this.bodyRect(this.familiar))) {
@@ -848,6 +1138,15 @@ export class GameScene extends Phaser.Scene {
 
   private checkBossTrigger() {
     const cleared = this.enemies.every((enemy) => !enemy.alive);
+    if (this.chapter === 2) {
+      if (!this.mageTriggered && cleared && this.player.x > 5520) {
+        this.triggerMageBoss();
+      } else if (!this.mageIntroHandled && this.player.x > 5000) {
+        this.mageIntroHandled = true;
+        this.showCenterNotice("回廊尽头", "保留一点耐力，后面的魔法会连续逼位。");
+      }
+      return;
+    }
     if (!this.bossTriggered && cleared && this.player.x > 2580) {
       this.bossTriggered = true;
       this.boss.awaken(2860, 475);
@@ -891,6 +1190,73 @@ export class GameScene extends Phaser.Scene {
     if (!this.ultimateOverlay) return;
     this.ultimateOverlay.destroy(true);
     this.ultimateOverlay = undefined;
+  }
+
+  private showMageUltimate() {
+    this.destroyUltimateCg();
+    const shade = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x14051e, 0.84).setScrollFactor(0);
+    const image = this.add.image(GAME_WIDTH / 2 + 120, GAME_HEIGHT / 2 + 30, "mageBossArt")
+      .setScrollFactor(0)
+      .setScale(0.43);
+    const title = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 92, "紫晶冠冕 · 群星折射", {
+      fontFamily: "Segoe UI",
+      fontSize: "38px",
+      color: "#f4c8ff",
+      stroke: "#1a0522",
+      strokeThickness: 6
+    }).setOrigin(0.5).setScrollFactor(0);
+    this.ultimateOverlay = this.add.container(0, 0, [shade, image, title]).setDepth(50).setAlpha(0);
+    this.tweens.add({ targets: this.ultimateOverlay, alpha: 1, duration: 180 });
+    this.tweens.add({ targets: image, x: image.x - 30, scaleX: 0.46, scaleY: 0.46, duration: 980 });
+    this.time.delayedCall(1000, () => this.destroyUltimateCg());
+  }
+
+  private showCenterNotice(titleText: string, bodyText: string) {
+    const title = this.add.text(this.player.x, 126, titleText, {
+      fontFamily: "Segoe UI",
+      fontSize: "30px",
+      color: "#f8d7ff",
+      stroke: "#130616",
+      strokeThickness: 5
+    }).setOrigin(0.5).setDepth(8);
+    const body = this.add.text(this.player.x, 166, bodyText, {
+      fontFamily: "Segoe UI",
+      fontSize: "16px",
+      color: "#f5e6ff",
+      stroke: "#130616",
+      strokeThickness: 4
+    }).setOrigin(0.5).setDepth(8);
+    this.tweens.add({
+      targets: [title, body],
+      alpha: 0,
+      y: "-=28",
+      delay: 1300,
+      duration: 700,
+      onComplete: () => {
+        title.destroy();
+        body.destroy();
+      }
+    });
+  }
+
+  private showDamageNumber(x: number, y: number, amount: number, color: number) {
+    if (amount <= 0) return;
+    const text = this.add.text(x, y, `-${Math.ceil(amount)}`, {
+      fontFamily: "Segoe UI",
+      fontSize: "20px",
+      fontStyle: "700",
+      color: `#${color.toString(16).padStart(6, "0")}`,
+      stroke: "#12040f",
+      strokeThickness: 4
+    }).setOrigin(0.5).setDepth(9);
+    this.tweens.add({
+      targets: text,
+      y: y - 34,
+      alpha: 0,
+      duration: 720,
+      ease: "power2.out",
+      onComplete: () => text.destroy()
+    });
   }
 
   private spawnImpact(x: number, y: number, color = 0xf3d994) {
@@ -1053,6 +1419,14 @@ export class GameScene extends Phaser.Scene {
         this.playIfNeeded(this.bossVisual, "boss-idle");
       }
     }
+
+    if (this.mageTriggered) {
+      this.mageVisual.setVisible(this.mageHp > 0);
+      if (this.mageHp > 0) {
+        this.mageVisual.setAlpha(1);
+        this.mageVisual.setTint(this.magePhaseTwo ? 0xf0c8ff : 0xffffff);
+      }
+    }
   }
 
   private updateAtmosphere(now: number) {
@@ -1081,17 +1455,25 @@ export class GameScene extends Phaser.Scene {
       this.player.weapon,
       this.familiar.alive ? this.familiar.hp : 0
     );
-    this.store.getState().setBossState(
-      this.bossTriggered,
-      this.boss.alive ? this.boss.hp : 0,
-      this.boss.phaseTwo ? BOSS_PHASE_TWO_TITLE : ""
-    );
+    if (this.chapter === 2) {
+      this.store.getState().setBossState(
+        this.mageTriggered,
+        this.mageHp,
+        this.magePhaseTwo ? MAGE_PHASE_TWO_TITLE : ""
+      );
+    } else {
+      this.store.getState().setBossState(
+        this.bossTriggered,
+        this.boss.alive ? this.boss.hp : 0,
+        this.boss.phaseTwo ? BOSS_PHASE_TWO_TITLE : ""
+      );
+    }
   }
 
   private updatePhaseVisuals() {
-    const alpha = this.boss.phaseTwo ? 0.34 : 0.26;
-    this.goldTreeGlow.setFillStyle(0xd7b052, alpha);
-    const cameraBg = this.boss.phaseTwo ? 0x09060b : 0x090b12;
+    const alpha = this.magePhaseTwo ? 0.42 : this.boss.phaseTwo ? 0.34 : 0.26;
+    this.goldTreeGlow.setFillStyle(this.chapter === 2 ? 0x9b64d7 : 0xd7b052, alpha);
+    const cameraBg = this.magePhaseTwo ? 0x100614 : this.chapter === 2 ? 0x0b0712 : this.boss.phaseTwo ? 0x09060b : 0x090b12;
     this.cameras.main.setBackgroundColor(cameraBg);
   }
 }
