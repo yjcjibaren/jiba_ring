@@ -12,6 +12,7 @@ import {
 
 export type WeaponType = "summon";
 export type ScreenState = "menu" | "playing" | "paused" | "gameover" | "victory";
+export type RespawnCheckpoint = "start" | "firstBoss" | "chapterTwo" | "secondBoss";
 
 type GameStore = {
   screen: ScreenState;
@@ -34,10 +35,12 @@ type GameStore = {
   phaseTwo: boolean;
   startedOnce: boolean;
   resetRun: number;
+  activeCheckpoint: RespawnCheckpoint;
   setScreen: (screen: ScreenState) => void;
   startGame: () => void;
   restartGame: () => void;
   quitToMenu: () => void;
+  setCheckpoint: (checkpoint: RespawnCheckpoint) => void;
   setPlayerStats: (
     hp: number,
     stamina: number,
@@ -68,7 +71,8 @@ const baseState = {
   bossVisible: false,
   bossHp: BOSS_MAX_HP,
   bossMaxHp: BOSS_MAX_HP,
-  phaseTwo: false
+  phaseTwo: false,
+  activeCheckpoint: "start" as RespawnCheckpoint
 };
 
 export const useGameStore = create<GameStore>((set) => ({
@@ -87,10 +91,12 @@ export const useGameStore = create<GameStore>((set) => ({
   restartGame: () =>
     set((state) => ({
       ...baseState,
+      activeCheckpoint: state.activeCheckpoint,
       screen: "playing",
       resetRun: state.resetRun + 1
     })),
   quitToMenu: () => set({ ...baseState, screen: "menu" }),
+  setCheckpoint: (checkpoint) => set({ activeCheckpoint: checkpoint }),
   setPlayerStats: (hp, stamina, energy, potions, weapon, summonHp) =>
     set({
       playerHp: hp,

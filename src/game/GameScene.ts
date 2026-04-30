@@ -136,6 +136,7 @@ export class GameScene extends Phaser.Scene {
       if (pointer.rightButtonDown()) this.tryHeavyCast();
     });
 
+    this.restoreCheckpoint();
     this.syncStore();
   }
 
@@ -779,6 +780,7 @@ export class GameScene extends Phaser.Scene {
     this.bossTriggered = false;
     this.boss.disableBody(true, true);
     this.bossVisual.setVisible(false);
+    this.store.getState().setCheckpoint("chapterTwo");
     this.store.getState().setChapter(CHAPTER_TWO_TITLE, MAGE_BOSS_NAME, MAGE_BOSS_MAX_HP);
     this.store.getState().setBossState(false, MAGE_BOSS_MAX_HP);
 
@@ -834,6 +836,61 @@ export class GameScene extends Phaser.Scene {
       this.enemyVisuals.set(enemy, visual);
       return enemy;
     });
+  }
+
+  private restoreCheckpoint() {
+    const checkpoint = this.store.getState().activeCheckpoint;
+    if (checkpoint === "start") return;
+
+    this.player.hp = PLAYER_MAX_HP;
+    this.player.stamina = 100;
+    this.player.energy = Math.min(70, this.player.energy + 24);
+    this.player.potions = 2;
+    this.player.alive = true;
+    this.player.attackLockUntil = 0;
+    this.player.hitStunUntil = 0;
+    this.player.invulnerableUntil = this.time.now + 1100;
+
+    this.familiar.restore();
+
+    if (checkpoint === "firstBoss") {
+      this.clearEnemies();
+      this.player.setPosition(2460, 500);
+      this.player.setVelocity(0, 0);
+      this.familiar.recall(this.player.x + 70, this.player.y + 8);
+      this.bossTriggered = true;
+      this.boss.awaken(2860, 475);
+      this.boss.hp = BOSS_MAX_HP;
+      this.boss.alive = true;
+      this.bossVisual.setVisible(true);
+      this.store.getState().setBossState(true, this.boss.hp);
+      this.showCenterNotice("Boss 战检查点", "从守门重骑士门前继续。");
+      return;
+    }
+
+    this.chapter = 2;
+    this.chapterTwoStarted = true;
+    this.clearEnemies();
+    this.boss.disableBody(true, true);
+    this.bossVisual.setVisible(false);
+    this.store.getState().setChapter(CHAPTER_TWO_TITLE, MAGE_BOSS_NAME, MAGE_BOSS_MAX_HP);
+
+    if (checkpoint === "chapterTwo") {
+      this.player.setPosition(3380, 500);
+      this.player.setVelocity(0, 0);
+      this.familiar.recall(this.player.x + 70, this.player.y + 8);
+      this.spawnChapterTwoEnemies();
+      this.store.getState().setBossState(false, MAGE_BOSS_MAX_HP);
+      this.showCenterNotice("第二章检查点", "从紫晶回廊入口继续。");
+      return;
+    }
+
+    this.player.setPosition(5480, 500);
+    this.player.setVelocity(0, 0);
+    this.familiar.recall(this.player.x + 70, this.player.y + 8);
+    this.mageIntroHandled = true;
+    this.triggerMageBoss();
+    this.showCenterNotice("Boss 战检查点", "从紫晶魔女门前继续。");
   }
 
   private processBoss(now: number) {
@@ -983,6 +1040,7 @@ export class GameScene extends Phaser.Scene {
 
   private triggerMageBoss() {
     this.mageTriggered = true;
+    this.store.getState().setCheckpoint("secondBoss");
     this.mageHp = MAGE_BOSS_MAX_HP;
     this.magePhaseTwo = false;
     this.mageUltActive = false;
@@ -1149,6 +1207,7 @@ export class GameScene extends Phaser.Scene {
     }
     if (!this.bossTriggered && cleared && this.player.x > 2580) {
       this.bossTriggered = true;
+      this.store.getState().setCheckpoint("firstBoss");
       this.boss.awaken(2860, 475);
       this.bossVisual.setVisible(true);
       this.store.getState().setBossState(true, this.boss.hp);
